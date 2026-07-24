@@ -81,14 +81,12 @@ class Player:
         self.current_platform = None
         self.coins = 0
 
-        # рывок (dash)
         self.dash_active = False
         self.dash_timer = 0.0
         self.dash_duration = 0.15
         self.dash_speed = 600
-        self.dash_cooldown = 0.0      # не используется, можно добавить при желании
         self.dash_key_down = False
-        self.invincible = False       # неуязвимость во время рывка
+        self.invincible = False
 
     def switch_state(self):
         self.state = "b" if self.state == "a" else "a"
@@ -116,7 +114,6 @@ class Player:
             self.current_anim = self.anim_stance
 
     def update(self, dt, keys, platforms, traps, coins, bouncy_platforms):
-        # обновление рывка
         if self.dash_active:
             self.dash_timer -= dt
             if self.dash_timer <= 0:
@@ -124,16 +121,12 @@ class Player:
                 self.invincible = False
                 self.vel_x = 0
             else:
-                # во время рывка двигаемся с постоянной скоростью, вертикальной скорости нет
                 self.x += self.vel_x * dt
-                # всё равно проверяем выход за экран
                 if self.x < 0:
                     self.x = 0
                 if self.x + self.width > screen_width:
                     self.x = screen_width - self.width
-                # коллизии не проверяем (проходим сквозь стены?), но лучше не застревать
-                # просто пропускаем остальную физику
-                return "alive"  # рывок неуязвим
+                return "alive"
 
         self.vel_x = 0
         if keys[pygame.K_a]:
@@ -144,10 +137,8 @@ class Player:
         if self.vel_x != 0:
             self.facing_right = self.vel_x > 0
 
-        # обработка рывка
         dash_key = keys[pygame.K_r]
         if dash_key and not self.dash_key_down and self.coins >= 5 and not self.dash_active:
-            # тратим 5 монет и активируем рывок
             self.coins -= 5
             self.dash_active = True
             self.dash_timer = self.dash_duration
@@ -163,7 +154,6 @@ class Player:
 
         self.x += self.vel_x * dt
 
-        # горизонтальные коллизии
         for plat in platforms:
             if self.x + self.width > plat.x and self.x < plat.x + plat.width:
                 if self.y + self.height > plat.y and self.y < plat.y + plat.height:
@@ -189,7 +179,6 @@ class Player:
                     self.vel_y = 0
                     self.on_ground = True
                     self.current_platform = plat
-                    # для падающих платформ: начинаем падение
                     if isinstance(plat, FallingPlatform) and not plat.falling:
                         plat.start_fall()
                 elif self.vel_y < 0 and self.y <= plat.y + plat.height and self.y + self.height > plat.y + plat.height:
@@ -198,29 +187,25 @@ class Player:
 
         if self.on_ground:
             self.jumps_left = self.max_jumps
-            # движемся вместе с подвижными платформами
             if self.current_platform is not None:
                 if isinstance(self.current_platform, MovingPlatform):
                     self.x += self.current_platform.vx * dt
                 elif isinstance(self.current_platform, VerticalMovingPlatform):
                     self.y += self.current_platform.vy * dt
 
-        # батуты
         player_rect = pygame.Rect(self.x, self.y, self.width, self.height)
         for bp in bouncy_platforms:
             if player_rect.colliderect(pygame.Rect(bp.x, bp.y, bp.width, bp.height)):
                 if self.vel_y > 0 and self.y + self.height >= bp.y and self.y < bp.y:
-                    self.vel_y = -16  # bounce_strength
+                    self.vel_y = -16
                     self.on_ground = False
                     self.current_platform = None
 
-        # ловушки (неуязвимость при рывке обрабатывается отдельно, здесь проверяем)
         if not self.invincible:
             for trap in traps:
                 if player_rect.colliderect(trap.get_rect()):
                     return "dead"
 
-        # монетки
         for coin in coins[:]:
             if player_rect.colliderect(pygame.Rect(coin.x, coin.y, coin.width, coin.height)):
                 coins.remove(coin)
@@ -291,7 +276,7 @@ class VerticalMovingPlatform(Platform):
         super().__init__(x, y, width, height)
         self.top_bound = top_bound
         self.bottom_bound = bottom_bound
-        self.vy = 60  # вертикальная скорость
+        self.vy = 60
 
     def update(self, dt):
         self.y += self.vy * dt
@@ -310,18 +295,17 @@ class FallingPlatform(Platform):
         super().__init__(x, y, width, height)
         self.falling = False
         self.fall_vy = 0
-        self.gravity = 0.5
+        self.alive = True
 
     def start_fall(self):
         self.falling = True
 
     def update(self, dt):
         if self.falling:
-            self.fall_vy += self.gravity
+            self.fall_vy += gravity
             self.y += self.fall_vy
-            # удаляем, если упала за экран
             if self.y > screen_height:
-                self.alive = False  # будет удалена при следующей очистке
+                self.alive = False
 
     def draw(self, surface):
         pygame.draw.rect(surface, (200, 100, 100), (self.x, self.y, self.width, self.height))
@@ -408,131 +392,152 @@ class PrologueScene(pygine.Scene):
 class DualityScene(pygine.Scene):
     def __init__(self, name="DualityScene"):
         super().__init__(name=name)
+        self.next_scene = None
         self.level = 0
         self.bg = pygame.image.load("подвал.jpg").convert()
         self.font = pygame.font.Font(None, 30)
 
-        # 10 разнообразных уровней с новыми элементами
+        # 20 уровней с постепенным усложнением
         self.levels = [
-            # 0 – обучение, монеты и вертикальная платформа
-            {
-                "static": [
-                    Platform(0, 500, 200, 20),
-                    Platform(250, 420, 100, 20),
-                    Platform(400, 320, 100, 20),
-                    Platform(550, 240, 150, 20),
-                    Platform(740, 180, 50, 20)
-                ],
-                "vertical": [{"x": 300, "y": 400, "width": 80, "height": 20, "top_bound": 350, "bottom_bound": 480}],
-                "traps": [],
-                "coins": [(150, 480), (270, 400), (500, 300), (650, 220)],
-                "bouncy": [],
-                "player_start": (30, 500 - frame_h)
-            },
-            # 1 – первая ловушка и движущаяся платформа
-            {
-                "static_a": [Platform(0, 550, 400, 20), Platform(100, 480, 100, 20), Platform(300, 410, 100, 20)],
-                "static_b": [Platform(400, 550, 400, 20), Platform(550, 450, 100, 20), Platform(700, 380, 100, 20)],
-                "traps": [{"type": "yellow", "x": 150, "y": 520, "size": 24, "left_bound": 130, "right_bound": 250}],
-                "coins": [(200, 460), (600, 370)],
-                "vertical": [],
-                "bouncy": [],
-                "player_start": (50, 550 - frame_h)
-            },
-            # 2 – падающая платформа
-            {
-                "static_a": [Platform(0, 550, 300, 20), Platform(150, 480, 100, 20)],
-                "static_b": [Platform(500, 550, 300, 20), Platform(650, 450, 100, 20)],
-                "falling": [{"x": 320, "y": 480, "width": 80, "height": 20}],  # падающая платформа между
-                "traps": [],
-                "coins": [(200, 460)],
-                "vertical": [],
-                "bouncy": [],
-                "player_start": (50, 550 - frame_h)
-            },
-            # 3 – батут и вертикальная ловушка
-            {
-                "static_a": [Platform(0, 550, 150, 20), Platform(250, 480, 100, 20), Platform(450, 410, 80, 20)],
-                "static_b": [Platform(200, 550, 150, 20), Platform(400, 450, 100, 20), Platform(600, 380, 100, 20), Platform(750, 340, 50, 20)],
-                "bouncy": [{"x": 220, "y": 550, "width": 80, "height": 15}],
-                "vertical": [{"x": 350, "y": 300, "width": 60, "height": 20, "top_bound": 250, "bottom_bound": 400}],
-                "traps": [],
-                "coins": [(300, 460)],
-                "player_start": (50, 550 - frame_h)
-            },
-            # 4 – рывок практически необходим (большой разрыв)
-            {
-                "static_a": [Platform(0, 550, 150, 20)],
-                "static_b": [Platform(600, 550, 200, 20), Platform(720, 480, 60, 20)],
-                "moving": [{"x": 200, "y": 500, "width": 80, "height": 20, "left_bound": 150, "right_bound": 350}],
-                "traps": [{"type": "yellow", "x": 280, "y": 460, "size": 24, "left_bound": 250, "right_bound": 350}],
-                "coins": [(300, 480)],
-                "vertical": [],
-                "bouncy": [],
-                "player_start": (30, 550 - frame_h)
-            },
-            # 5 – много вертикальных платформ и ловушек
-            {
-                "static_a": [Platform(0, 550, 100, 20), Platform(200, 470, 80, 20)],
-                "static_b": [Platform(150, 550, 100, 20), Platform(350, 450, 80, 20), Platform(550, 350, 80, 20), Platform(720, 300, 60, 20)],
-                "vertical": [
-                    {"x": 250, "y": 500, "width": 60, "height": 20, "top_bound": 400, "bottom_bound": 550},
-                    {"x": 500, "y": 400, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 500}
-                ],
-                "traps": [{"type": "yellow", "x": 400, "y": 420, "size": 20, "left_bound": 380, "right_bound": 480}],
-                "coins": [(200, 450), (400, 400)],
-                "bouncy": [],
-                "player_start": (20, 550 - frame_h)
-            },
-            # 6 – падающая платформа и рывок
-            {
-                "static_a": [Platform(0, 550, 200, 20), Platform(350, 480, 80, 20)],
-                "static_b": [Platform(300, 550, 200, 20), Platform(600, 420, 80, 20)],
-                "falling": [{"x": 480, "y": 420, "width": 80, "height": 20}],
-                "traps": [],
-                "coins": [(250, 460), (550, 400)],
-                "vertical": [],
-                "bouncy": [],
-                "player_start": (50, 550 - frame_h)
-            },
-            # 7 – узкие платформы с батутом и монетами
-            {
-                "static_a": [Platform(0, 550, 60, 20), Platform(150, 480, 60, 20), Platform(300, 410, 60, 20), Platform(450, 340, 60, 20), Platform(600, 270, 60, 20), Platform(740, 220, 40, 20)],
-                "static_b": [],
-                "bouncy": [{"x": 700, "y": 220, "width": 40, "height": 15}],
-                "traps": [],
-                "coins": [(180, 460), (330, 390), (480, 320), (630, 250)],
-                "vertical": [],
-                "player_start": (10, 550 - frame_h)
-            },
-            # 8 – всё вместе: вертикальные, падающие, ловушки, батут
-            {
-                "static_a": [Platform(0, 550, 120, 20), Platform(220, 500, 80, 20)],
-                "static_b": [Platform(130, 550, 120, 20), Platform(330, 480, 80, 20), Platform(580, 400, 80, 20), Platform(730, 360, 60, 20)],
-                "vertical": [{"x": 150, "y": 400, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 480}],
-                "falling": [{"x": 450, "y": 440, "width": 70, "height": 20}],
-                "bouncy": [{"x": 550, "y": 400, "width": 60, "height": 15}],
-                "traps": [{"type": "yellow", "x": 250, "y": 460, "size": 20, "left_bound": 220, "right_bound": 320}],
-                "coins": [(200, 480), (400, 420), (650, 380)],
-                "player_start": (30, 550 - frame_h)
-            },
-            # 9 – финальное испытание
-            {
-                "static_a": [Platform(0, 550, 80, 20), Platform(180, 490, 60, 20)],
-                "static_b": [Platform(100, 550, 80, 20), Platform(260, 480, 60, 20), Platform(430, 400, 60, 20), Platform(600, 330, 60, 20), Platform(740, 280, 50, 20)],
-                "vertical": [
-                    {"x": 200, "y": 450, "width": 60, "height": 20, "top_bound": 380, "bottom_bound": 520},
-                    {"x": 500, "y": 380, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 450}
-                ],
-                "falling": [{"x": 350, "y": 480, "width": 70, "height": 20}],
-                "bouncy": [{"x": 700, "y": 280, "width": 50, "height": 15}],
-                "traps": [
-                    {"type": "yellow", "x": 300, "y": 500, "size": 24, "left_bound": 280, "right_bound": 380},
-                    {"type": "yellow", "x": 600, "y": 350, "size": 24, "left_bound": 580, "right_bound": 680}
-                ],
-                "coins": [(150, 470), (350, 410), (550, 350), (700, 260)],
-                "player_start": (10, 550 - frame_h)
-            }
+            # 0 – ровный пол, только монеты
+            {"static": [Platform(0, 500, screen_width, 20)],
+             "coins": [(100, 480), (300, 480), (500, 480), (700, 480)],
+             "player_start": (50, 500 - frame_h)},
+            # 1 – движущаяся платформа
+            {"static": [Platform(0, 500, 200, 20), Platform(350, 500, 150, 20), Platform(600, 500, 200, 20)],
+             "moving": [{"x": 250, "y": 440, "width": 80, "height": 20, "left_bound": 200, "right_bound": 450}],
+             "coins": [(280, 420), (500, 480)],
+             "player_start": (30, 500 - frame_h)},
+            # 2 – жёлтая ловушка
+            {"static_a": [Platform(0, 550, 400, 20), Platform(100, 480, 100, 20), Platform(300, 410, 100, 20)],
+             "static_b": [Platform(400, 550, 400, 20), Platform(550, 450, 100, 20), Platform(700, 380, 100, 20)],
+             "traps": [{"type": "yellow", "x": 200, "y": 520, "size": 20, "left_bound": 180, "right_bound": 280}],
+             "coins": [(200, 460), (600, 370)],
+             "player_start": (50, 550 - frame_h)},
+            # 3 – вертикальная платформа
+            {"static": [Platform(0, 500, 150, 20), Platform(250, 420, 100, 20), Platform(400, 340, 100, 20), Platform(550, 260, 150, 20), Platform(740, 200, 50, 20)],
+             "vertical": [{"x": 180, "y": 450, "width": 60, "height": 20, "top_bound": 380, "bottom_bound": 500}],
+             "coins": [(200, 400), (450, 320), (650, 240)],
+             "player_start": (20, 500 - frame_h)},
+            # 4 – батут
+            {"static_a": [Platform(0, 550, 200, 20), Platform(350, 480, 80, 20)],
+             "static_b": [Platform(300, 550, 200, 20), Platform(600, 420, 100, 20), Platform(750, 360, 50, 20)],
+             "bouncy": [{"x": 500, "y": 420, "width": 60, "height": 15}],
+             "coins": [(280, 460), (620, 400)],
+             "player_start": (50, 550 - frame_h)},
+            # 5 – падающая платформа
+            {"static_a": [Platform(0, 550, 250, 20), Platform(400, 480, 80, 20)],
+             "static_b": [Platform(350, 550, 250, 20), Platform(650, 450, 100, 20), Platform(760, 380, 40, 20)],
+             "falling": [{"x": 520, "y": 480, "width": 70, "height": 20}],
+             "coins": [(450, 460)],
+             "player_start": (50, 550 - frame_h)},
+            # 6 – полностью из падающих платформ
+            {"static": [],
+             "falling": [{"x": 0, "y": 500, "width": 100, "height": 20},
+                         {"x": 130, "y": 480, "width": 90, "height": 20},
+                         {"x": 250, "y": 460, "width": 90, "height": 20},
+                         {"x": 370, "y": 440, "width": 90, "height": 20},
+                         {"x": 490, "y": 420, "width": 90, "height": 20},
+                         {"x": 610, "y": 400, "width": 90, "height": 20},
+                         {"x": 730, "y": 380, "width": 60, "height": 20}],
+             "coins": [(200, 460), (400, 440), (600, 420)],
+             "player_start": (20, 500 - frame_h)},
+            # 7 – вертикальная платформа + ловушка
+            {"static_a": [Platform(0, 550, 120, 20), Platform(220, 500, 80, 20)],
+             "static_b": [Platform(130, 550, 120, 20), Platform(330, 480, 80, 20), Platform(580, 400, 80, 20)],
+             "vertical": [{"x": 150, "y": 400, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 480}],
+             "traps": [{"type": "yellow", "x": 250, "y": 460, "size": 20, "left_bound": 220, "right_bound": 320}],
+             "coins": [(200, 480), (450, 400)],
+             "player_start": (30, 550 - frame_h)},
+            # 8 – две ловушки и батут
+            {"static_a": [Platform(0, 550, 150, 20), Platform(250, 480, 100, 20), Platform(450, 410, 80, 20)],
+             "static_b": [Platform(200, 550, 150, 20), Platform(400, 450, 100, 20), Platform(600, 380, 100, 20), Platform(750, 340, 50, 20)],
+             "traps": [{"type": "yellow", "x": 300, "y": 460, "size": 20, "left_bound": 280, "right_bound": 380},
+                       {"type": "yellow", "x": 550, "y": 380, "size": 20, "left_bound": 520, "right_bound": 620}],
+             "bouncy": [{"x": 450, "y": 410, "width": 60, "height": 15}],
+             "coins": [(200, 460), (500, 360)],
+             "player_start": (50, 550 - frame_h)},
+            # 9 – много вертикальных и падающих
+            {"static_a": [Platform(0, 550, 120, 20), Platform(220, 500, 80, 20)],
+             "static_b": [Platform(130, 550, 120, 20), Platform(330, 480, 80, 20), Platform(580, 400, 80, 20), Platform(730, 360, 60, 20)],
+             "vertical": [{"x": 150, "y": 400, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 480},
+                          {"x": 500, "y": 380, "width": 60, "height": 20, "top_bound": 280, "bottom_bound": 450}],
+             "falling": [{"x": 450, "y": 440, "width": 70, "height": 20}],
+             "coins": [(250, 480), (420, 420), (650, 380)],
+             "player_start": (30, 550 - frame_h)},
+            # 10 – все элементы
+            {"static_a": [Platform(0, 550, 80, 20), Platform(180, 490, 60, 20)],
+             "static_b": [Platform(100, 550, 80, 20), Platform(260, 480, 60, 20), Platform(430, 400, 60, 20), Platform(600, 330, 60, 20), Platform(740, 280, 50, 20)],
+             "vertical": [{"x": 200, "y": 450, "width": 60, "height": 20, "top_bound": 380, "bottom_bound": 520},
+                          {"x": 500, "y": 380, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 450}],
+             "falling": [{"x": 350, "y": 480, "width": 70, "height": 20}],
+             "bouncy": [{"x": 700, "y": 280, "width": 50, "height": 15}],
+             "traps": [{"type": "yellow", "x": 300, "y": 500, "size": 24, "left_bound": 280, "right_bound": 380},
+                       {"type": "yellow", "x": 600, "y": 350, "size": 24, "left_bound": 580, "right_bound": 680}],
+             "coins": [(150, 470), (350, 410), (550, 350), (700, 260)],
+             "player_start": (10, 550 - frame_h)},
+            # Уровни 11-19: постепенное усложнение с большим количеством ловушек и платформ
+            {"static": [Platform(0, 500, 200, 20), Platform(300, 450, 100, 20), Platform(500, 400, 100, 20), Platform(700, 350, 80, 20)],
+             "vertical": [{"x": 250, "y": 400, "width": 60, "height": 20, "top_bound": 350, "bottom_bound": 480}],
+             "traps": [{"type": "yellow", "x": 400, "y": 430, "size": 24, "left_bound": 380, "right_bound": 480}],
+             "coins": [(350, 430), (600, 380)],
+             "player_start": (30, 500 - frame_h)},
+            {"static": [Platform(0, 500, 150, 20), Platform(250, 430, 100, 20), Platform(450, 370, 100, 20), Platform(650, 320, 100, 20), Platform(800, 280, 50, 20)],
+             "moving": [{"x": 180, "y": 460, "width": 80, "height": 20, "left_bound": 150, "right_bound": 300}],
+             "traps": [{"type": "yellow", "x": 350, "y": 410, "size": 24, "left_bound": 320, "right_bound": 420}],
+             "coins": [(280, 440), (550, 350)],
+             "player_start": (20, 500 - frame_h)},
+            {"static_a": [Platform(0, 550, 200, 20), Platform(300, 480, 100, 20), Platform(500, 420, 80, 20)],
+             "static_b": [Platform(150, 550, 200, 20), Platform(400, 500, 100, 20), Platform(600, 440, 80, 20), Platform(740, 400, 50, 20)],
+             "falling": [{"x": 400, "y": 480, "width": 70, "height": 20}],
+             "bouncy": [{"x": 600, "y": 420, "width": 60, "height": 15}],
+             "coins": [(250, 460), (550, 400)],
+             "player_start": (50, 550 - frame_h)},
+            {"static": [Platform(0, 500, 100, 20), Platform(200, 440, 80, 20), Platform(380, 380, 80, 20), Platform(560, 320, 80, 20), Platform(740, 280, 50, 20)],
+             "vertical": [{"x": 130, "y": 460, "width": 60, "height": 20, "top_bound": 400, "bottom_bound": 520},
+                          {"x": 450, "y": 360, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 420}],
+             "traps": [{"type": "yellow", "x": 300, "y": 420, "size": 24, "left_bound": 280, "right_bound": 380}],
+             "coins": [(250, 480), (450, 360), (650, 300)],
+             "player_start": (20, 500 - frame_h)},
+            {"static_a": [Platform(0, 550, 120, 20), Platform(220, 500, 80, 20), Platform(420, 440, 80, 20)],
+             "static_b": [Platform(150, 550, 120, 20), Platform(350, 490, 80, 20), Platform(550, 420, 80, 20), Platform(720, 380, 60, 20)],
+             "moving": [{"x": 300, "y": 470, "width": 80, "height": 20, "left_bound": 250, "right_bound": 400}],
+             "traps": [{"type": "yellow", "x": 500, "y": 420, "size": 24, "left_bound": 480, "right_bound": 580}],
+             "bouncy": [{"x": 650, "y": 420, "width": 50, "height": 15}],
+             "coins": [(300, 480), (550, 400)],
+             "player_start": (30, 550 - frame_h)},
+            {"static": [Platform(0, 500, 200, 20), Platform(350, 460, 100, 20), Platform(550, 400, 100, 20), Platform(750, 360, 50, 20)],
+             "falling": [{"x": 250, "y": 460, "width": 70, "height": 20},
+                         {"x": 450, "y": 400, "width": 70, "height": 20}],
+             "coins": [(300, 440), (600, 380)],
+             "player_start": (30, 500 - frame_h)},
+            {"static_a": [Platform(0, 550, 150, 20), Platform(250, 490, 100, 20)],
+             "static_b": [Platform(200, 550, 150, 20), Platform(400, 480, 100, 20), Platform(600, 410, 100, 20), Platform(750, 360, 50, 20)],
+             "vertical": [{"x": 350, "y": 450, "width": 60, "height": 20, "top_bound": 380, "bottom_bound": 500},
+                          {"x": 650, "y": 380, "width": 60, "height": 20, "top_bound": 320, "bottom_bound": 440}],
+             "traps": [{"type": "yellow", "x": 500, "y": 440, "size": 24, "left_bound": 480, "right_bound": 580}],
+             "coins": [(300, 470), (550, 390)],
+             "player_start": (50, 550 - frame_h)},
+            {"static": [Platform(0, 500, 100, 20), Platform(200, 440, 80, 20), Platform(400, 380, 80, 20), Platform(600, 320, 80, 20), Platform(760, 280, 40, 20)],
+             "vertical": [{"x": 300, "y": 420, "width": 60, "height": 20, "top_bound": 360, "bottom_bound": 480}],
+             "falling": [{"x": 500, "y": 380, "width": 70, "height": 20}],
+             "bouncy": [{"x": 700, "y": 320, "width": 50, "height": 15}],
+             "traps": [{"type": "yellow", "x": 400, "y": 420, "size": 24, "left_bound": 380, "right_bound": 480}],
+             "coins": [(250, 480), (450, 400), (650, 340)],
+             "player_start": (20, 500 - frame_h)},
+            # Уровень 19 – финальный, сложнейший
+            {"static_a": [Platform(0, 550, 80, 20), Platform(180, 490, 60, 20), Platform(350, 430, 60, 20), Platform(520, 370, 60, 20)],
+             "static_b": [Platform(100, 550, 80, 20), Platform(260, 480, 60, 20), Platform(430, 400, 60, 20), Platform(600, 330, 60, 20), Platform(740, 280, 50, 20)],
+             "vertical": [{"x": 200, "y": 450, "width": 60, "height": 20, "top_bound": 380, "bottom_bound": 520},
+                          {"x": 500, "y": 380, "width": 60, "height": 20, "top_bound": 300, "bottom_bound": 450}],
+             "falling": [{"x": 350, "y": 480, "width": 70, "height": 20},
+                         {"x": 600, "y": 330, "width": 60, "height": 20}],
+             "bouncy": [{"x": 700, "y": 280, "width": 50, "height": 15}],
+             "traps": [{"type": "yellow", "x": 300, "y": 500, "size": 24, "left_bound": 280, "right_bound": 380},
+                       {"type": "yellow", "x": 600, "y": 350, "size": 24, "left_bound": 580, "right_bound": 680},
+                       {"type": "yellow", "x": 450, "y": 380, "size": 24, "left_bound": 430, "right_bound": 530}],
+             "coins": [(150, 470), (350, 410), (550, 350), (700, 260)],
+             "player_start": (10, 550 - frame_h)}
         ]
         self.g_pressed = False
         self.moving_platforms = []
@@ -563,8 +568,13 @@ class DualityScene(pygine.Scene):
 
     def setup(self):
         if self.level >= len(self.levels):
-            self.level = 0
+            self.next_scene = "victory"
+            return
         level_data = self.levels[self.level]
+
+        old_coins = 0
+        if hasattr(self, 'player'):
+            old_coins = self.player.coins
 
         self.dual_platforms = "static_a" in level_data
         self.static_platforms_a = []
@@ -619,6 +629,7 @@ class DualityScene(pygine.Scene):
 
         start_x, start_y = level_data["player_start"]
         self.player = Player(start_x, start_y, self.frames_a, self.frames_b, max_jumps=2)
+        self.player.coins = old_coins
         self.g_pressed = False
 
     def on_enter(self):
@@ -636,6 +647,9 @@ class DualityScene(pygine.Scene):
         return platforms
 
     def update(self, dt):
+        if self.next_scene:
+            return
+
         keys = pygame.key.get_pressed()
         if keys[pygame.K_g] and not self.g_pressed:
             self.player.switch_state()
@@ -643,7 +657,6 @@ class DualityScene(pygine.Scene):
         elif not keys[pygame.K_g]:
             self.g_pressed = False
 
-        # обновление движущихся платформ
         for mp in self.moving_platforms:
             if self.player.state == "b":
                 mp.vx = -platform_speed
@@ -654,10 +667,9 @@ class DualityScene(pygine.Scene):
         for vp in self.vertical_platforms:
             vp.update(dt)
 
-        # обновление падающих платформ, удаление упавших
         for fp in self.falling_platforms[:]:
             fp.update(dt)
-            if hasattr(fp, 'alive') and not fp.alive:
+            if not fp.alive:
                 self.falling_platforms.remove(fp)
 
         for trap in self.traps:
@@ -691,18 +703,44 @@ class DualityScene(pygine.Scene):
 
         self.player.draw(screen)
 
-        # интерфейс
-        level_text = self.font.render(f"Level {self.level}", True, (255, 255, 255))
+        level_text = self.font.render(f"Level {self.level+1}/{len(self.levels)}", True, (255, 255, 255))
         coin_text = self.font.render(f"Coins: {self.player.coins}", True, (255, 255, 0))
         dash_text = self.font.render("Press R to dash (5 coins)", True, (200, 200, 200))
         screen.blit(level_text, (10, 10))
         screen.blit(coin_text, (10, 40))
         screen.blit(dash_text, (10, 70))
 
+class VictoryScene(pygine.Scene):
+    def __init__(self, name="Victory"):
+        super().__init__(name=name)
+        self.next_scene = None
+        self.font_big = pygame.font.Font(None, 72)
+        self.font_small = pygame.font.Font(None, 36)
+        self.timer = 0
+
+    def on_enter(self):
+        self.timer = 3
+
+    def update(self, dt):
+        self.timer -= dt
+        if self.timer <= 0:
+            self.next_scene = "menu"
+
+    def draw(self, screen):
+        screen.fill((0, 0, 0))
+        text = self.font_big.render("Вы победили!", True, (255, 215, 0))
+        screen.blit(text, (screen_width//2 - text.get_width()//2, screen_height//2 - 50))
+        prompt = self.font_small.render("Возврат в меню...", True, (200, 200, 200))
+        screen.blit(prompt, (screen_width//2 - prompt.get_width()//2, screen_height//2 + 20))
 
 class MenuScene(pygine.Scene):
     def __init__(self, name="Menu"):
         super().__init__(name=name)
+        self.next_scene = None
+        try:
+            self.bg = pygame.image.load("меню.png").convert()
+        except:
+            self.bg = None
         self.font_title = pygame.font.Font(None, 74)
         self.font_prompt = pygame.font.Font(None, 36)
 
@@ -712,23 +750,26 @@ class MenuScene(pygine.Scene):
             self.next_scene = "prologue"
 
     def draw(self, screen):
-        screen.fill((20, 20, 20))
-        title = self.font_title.render("Bolgarion Boy 3 DEMO", True, (255, 255, 255))
+        if self.bg:
+            screen.blit(self.bg, (0, 0))
+        else:
+            screen.fill((20, 20, 20))
+        title = self.font_title.render("Bolgarian Boy 3 DEMO", True, (255, 255, 255))
         prompt = self.font_prompt.render("Press ENTER to Start", True, (200, 200, 200))
         screen.blit(title, (screen_width // 2 - title.get_width() // 2, 200))
         screen.blit(prompt, (screen_width // 2 - prompt.get_width() // 2, 350))
 
-
 if __name__ == "__main__":
     pygame.init()
     screen = pygame.display.set_mode((screen_width, screen_height))
-    pygame.display.set_caption("Shakal studio: Bolgarion boy 3 DEMO")
+    pygame.display.set_caption("Shakal studio: Bolgarian boy 3 DEMO")
     clock = pygame.time.Clock()
 
     menu = MenuScene(name="menu")
     prologue = PrologueScene(name="prologue")
     game = DualityScene(name="main")
-    scenes = {"menu": menu, "prologue": prologue, "main": game}
+    victory = VictoryScene(name="victory")
+    scenes = {"menu": menu, "prologue": prologue, "main": game, "victory": victory}
     current_scene = "menu"
 
     running = True
@@ -746,6 +787,8 @@ if __name__ == "__main__":
             scene.next_scene = None
             if current_scene == "main":
                 game.on_enter()
+            elif current_scene == "victory":
+                victory.on_enter()
 
         scene.draw(screen)
         pygame.display.flip()
